@@ -8,7 +8,7 @@ from time import strftime
 from multiprocessing import Queue
 
 from FileTail import FileTail, SSHFileTail
-from LogParser import ApacheErrorLogParser
+from LogParser import parseLine
 
 def getTail(filename):
 	if filename.startswith("ssh://"):
@@ -71,7 +71,7 @@ class LogCatTab(gtk.ScrolledWindow):
 
 				break
 		else:
-			messageType = error["message_type"] if error["message_type"] else "Unknown"
+			messageType = error["messageType"] if error["messageType"] else "Unknown"
 			lastSeenStr = strftime(self.DATE_FORMAT, error["date"])
 			self.store.append((messageType, error["message"], 1, lastSeenStr, error["date"], ListWrapper(error.copy())))
 		
@@ -107,12 +107,12 @@ class LogCatDetails(gtk.ScrolledWindow):
 			self.setText("Click any error above to get details")
 			return
 
-		msgType = errorList[0]["message_type"] if errorList[0]["message_type"] else "Unknown"
-		msgDetails = errorList[0]["message_parsed"] if errorList[0]["message_type"] else {}
+		msgType = errorList[0]["messageType"] if errorList[0]["messageType"] else "Unknown"
+		msgDetails = errorList[0]["messageParsed"] if errorList[0]["messageType"] else {}
 		
 		lines = []
 		lines.append("Message: %s" % errorList[0]["message"])
-		lines.append("Type: %s" % errorList[0]["message_type"])
+		lines.append("Type: %s" % errorList[0]["messageType"])
 
 		for key in sorted(msgDetails.keys()):
 			lines.append("  " + key + ": " + msgDetails[key])
@@ -146,7 +146,6 @@ class LogCatWindow(gtk.Window):
 		self.connect("delete_event", self.on_delete_event)
 		self.connect("destroy", self.on_destroy)
 
-		self.parser = ApacheErrorLogParser()
 		# Both use the FD number as index
 		self.tails = {}
 		self.tabs = {}
@@ -194,7 +193,7 @@ class LogCatWindow(gtk.Window):
 
 	def on_io(self, fd, cond):
 		line = self.tails[fd].getQueue().get()
-		parsed = self.parser.parseLine(line)
+		parsed = parseLine(line)
 		if parsed != None:
 			self.tabs[fd].addError(parsed)
 			self.tabs[None].addError(parsed)
