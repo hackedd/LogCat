@@ -2,6 +2,7 @@ import re
 import time
 
 class LogParser(object):
+	IGNORE = "IGNORE"
 	messageParsers = []
 
 	def __init__(self):
@@ -33,7 +34,7 @@ class LogParser(object):
 		return dict(zip(groupNames, groups))
 
 class ApacheErrorLogParser(LogParser):
-	LOG = re.compile(r"^\[([^\]]+)\] \[([^\]]+)\] (?:\[client ([^\]]+)\])? (.*?)(?:, referer: (.*))?$")
+	LOG = re.compile(r"^\[([^\]]+)\] \[([^\]]+)\](?: \[client ([^\]]+)\])? (.*?)(?:, referer: (.*))?$")
 	GROUPS = ("date", "level", "client", "message", "referer")
 	DATE = "%a %b %d %H:%M:%S %Y" # Sun Oct 24 06:48:26 2010
 
@@ -46,6 +47,8 @@ class ApacheErrorLogParser(LogParser):
 		parseDict["date"] = time.strptime(parseDict["date"], self.DATE)
 
 		parser, parsed = LogParser.parseMessage(parseDict["message"])
+		if parser == LogParser.IGNORE:
+			return None
 		parseDict["message_type"] = parser
 		parseDict["message_parsed"] = parsed
 
@@ -54,7 +57,7 @@ class ApacheErrorLogParser(LogParser):
 class PHPErrorParser(LogParser):
 	TYPE = "PHP Error"
 	# Yes, that is two spaces between the colon and the message...
-	LINE = re.compile(r"^PHP (Error|Warning|Notice|Deprecated):  (.*?)(?: in (?!.*? in )(/var/www/.*?) on line (\d+))?$")
+	LINE = re.compile(r"^PHP (Fatal error|Parse error|Warning|Notice|Deprecated):  (.*?)(?: in (?!.*? in )(/var/www/.*?) on line (\d+))?$")
 	GROUPS = ("level", "message", "file", "line")
 
 	@staticmethod
@@ -62,8 +65,17 @@ class PHPErrorParser(LogParser):
 		return LogParser.parseLineRegex(line, PHPErrorParser.LINE, PHPErrorParser.GROUPS)
 LogParser.addMessageParser(PHPErrorParser)
 
+class PHPIgnore(LogParser):
+	TYPE = LogParser.IGNORE
+	LINE = re.compile(r"^PHP [ 0-9][ 0-9][ 0-9]\. .*$")
+
+	@staticmethod
+	def parseLine(line):
+		if line == "PHP Stack trace:" or PHPIgnore.LINE.match(line):
+			return True
+LogParser.addMessageParser(PHPIgnore)
+
 class FileNotFoundParser(LogParser):
-	# File does not exist: /var/www/nl/beverwedstrijd/images/logo_6.png
 	TYPE = "File Not Found"
 	LINE = [re.compile(r"^File does not exist: (.*)$"), re.compile(r"^script '([^']+)' not found or unable to stat$")]
 	GROUPS = ("file", )
@@ -75,5 +87,17 @@ class FileNotFoundParser(LogParser):
 			if parsed != None:
 				return parsed
 		return None
-
 LogParser.addMessageParser(FileNotFoundParser)
+
+class ApacheLifeCycleParser(LogParser):
+	TYPE = "Apache"
+
+	@staticmethod
+	def parseLine(line):
+		if line == "caught SIGTERM, shutting down":
+			return {"type": "shutdown", "message": line}
+		if (line.endswith("-- resuming normal operations") or 
+			line == "Graceful restart requested, doing restart"):
+			return {"type": "restart", "message": line}
+		return None
+LogParser.addMessageParser(ApacheLifeCycleParser)

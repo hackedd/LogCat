@@ -37,13 +37,16 @@ class LogCatTab(gtk.ScrolledWindow):
 
 	DATE_FORMAT = "%Y-%m-%d %H:%M"
 
-	def __init__(self):
+	def __init__(self, mainWindow):
 		gtk.ScrolledWindow.__init__(self)
+
+		self.mainWindow = mainWindow
 		self.store = gtk.ListStore(*self.TYPES)
 
 		self.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
 		self.treeView = gtk.TreeView(self.store)
-		self.treeView.connect("row-activated", self.on_row_activated)
+		self.treeViewSelection = self.treeView.get_selection()
+		self.treeViewSelection.connect("changed", self.on_selection_changed)
 		self.add(self.treeView)
 
 		for idx, colname in enumerate(self.NAMES):
@@ -68,31 +71,95 @@ class LogCatTab(gtk.ScrolledWindow):
 
 				break
 		else:
-			messageType = error["message_type"] if error["message_type"] else "None"
+			messageType = error["message_type"] if error["message_type"] else "Unknown"
 			lastSeenStr = strftime(self.DATE_FORMAT, error["date"])
 			self.store.append((messageType, error["message"], 1, lastSeenStr, error["date"], ListWrapper(error.copy())))
+		
+	def on_selection_changed(self, selection):
+		model, paths = self.treeViewSelection.get_selected_rows()
+		if len(paths) > 0:
+			row = model[paths[0]]
+			list = row[self.ALL].getList()
+		else:
+			list = None
+
+		self.mainWindow.setDetails(list)
+
+from collections import defaultdict
+
+class LogCatDetails(gtk.ScrolledWindow):
+	def __init__(self, mainWindow):
+		gtk.ScrolledWindow.__init__(self)
+		self.mainWindow = mainWindow
 	
-	def on_row_activated(self, widget, path, column):
-		row = self.store[path]
-		print row[self.ALL].getList()
+		self.set_size_request(-1, 50)
+		self.textView = gtk.TextView()
+		self.add(self.textView)
+		self.setText("Click any error above to get details")
+
+	def setText(self, text):
+		buf = self.textView.get_buffer()
+		buf.delete(buf.get_start_iter(), buf.get_end_iter())
+		buf.insert(buf.get_start_iter(), text)
+	
+	def setErrorList(self, errorList):
+		if not errorList:
+			self.setText("Click any error above to get details")
+			return
+
+		msgType = errorList[0]["message_type"] if errorList[0]["message_type"] else "Unknown"
+		msgDetails = errorList[0]["message_parsed"] if errorList[0]["message_type"] else {}
+		
+		lines = []
+		lines.append("Message: %s" % errorList[0]["message"])
+		lines.append("Type: %s" % errorList[0]["message_type"])
+
+		for key in sorted(msgDetails.keys()):
+			lines.append("  " + key + ": " + msgDetails[key])
+		
+		N = 10
+
+		clients = defaultdict(int)
+		referers = defaultdict(int)
+		for message in errorList:
+			clients[message["client"]] += 1
+			referers[message["referer"]] += 1
+
+		sortedClients = sorted([(v, k) for (k, v) in clients.iteritems()], reverse = True)[0:N]
+		lines.append("Clients (Top %d):" % len(sortedClients))
+		for count, client in sortedClients:
+			lines.append("  %4d: %s" % (count, client))
+		
+		sortedReferers = sorted([(v, k) for (k, v) in referers.iteritems()], reverse = True)[0:N]
+		lines.append("Referers (Top %d):" % len(sortedReferers))
+		for count, referer in sortedReferers:
+			lines.append("  %4d: %s" % (count, referer))
+		
+		self.setText("\n".join(lines))
 
 class LogCatWindow(gtk.Window):
 	def __init__(self, filenames):
 		gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
 
 		self.set_title("LogCat")
-		self.set_size_request(400, 400)
+		self.set_size_request(800, 400)
 		self.connect("delete_event", self.on_delete_event)
 		self.connect("destroy", self.on_destroy)
-
-		notebook = gtk.Notebook()
 
 		self.parser = ApacheErrorLogParser()
 		# Both use the FD number as index
 		self.tails = {}
 		self.tabs = {}
 
-		tab = LogCatTab()
+		notebook = gtk.Notebook()
+		self.details = LogCatDetails(self)
+
+		vbox = gtk.VPaned()
+		self.add(vbox)
+		vbox.pack1(notebook, True)
+		vbox.pack2(self.details, False)
+
+		tab = LogCatTab(self)
 		self.tabs[None] = tab
 		label = gtk.Label("Overall")
 		notebook.append_page(tab, label)
@@ -100,7 +167,7 @@ class LogCatWindow(gtk.Window):
 		for filename in filenames:
 			tail = getTail(filename)
 			fd = tail.getFD()
-			tab = LogCatTab()
+			tab = LogCatTab(self)
 
 			self.tails[fd] = tail
 			self.tabs[fd] = tab
@@ -112,7 +179,6 @@ class LogCatWindow(gtk.Window):
 
 			gobject.io_add_watch(fd, gobject.IO_IN, self.on_io)
 
-		self.add(notebook)
 		self.show_all()
 		self.show()
 
@@ -129,10 +195,13 @@ class LogCatWindow(gtk.Window):
 	def on_io(self, fd, cond):
 		line = self.tails[fd].getQueue().get()
 		parsed = self.parser.parseLine(line)
-
-		self.tabs[fd].addError(parsed)
-		self.tabs[None].addError(parsed)
+		if parsed != None:
+			self.tabs[fd].addError(parsed)
+			self.tabs[None].addError(parsed)
 		return True
+	
+	def setDetails(self, errorList):
+		self.details.setErrorList(errorList)
 
 if __name__ == "__main__":
 	if len(sys.argv) < 2:
