@@ -61,15 +61,19 @@ class SSHFileTail(FileTail):
 		return self.server + ":" + os.path.basename(self.filename)
 
 	def run(self):
-		cmd = ["ssh", "-t", "-t", self.server, "tail -f \"" + self.filename + "\""]
+		cmd = ["ssh", self.server, "tail -f \"" + self.filename + "\""]
 		ssh = Popen(cmd, stdin = PIPE, stdout = PIPE, stderr = STDOUT)
 
+		#ssh.stdin.close()
+		fp = ssh.stdout
+
+		buf = ""
 		while not self.stopping.is_set():
 			r, w, x = select([fp], [], [], self.SLEEP_TIME)
 			if fp not in r:
 				continue
 
-			read = fp.read(1)
+			buf += fp.read(1)
 			if "\n" in buf:
 				line, buf = buf.split("\n", 1)
 				self.queue.put(line)

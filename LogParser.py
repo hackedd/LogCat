@@ -10,13 +10,13 @@ LINE_REGEXES = {
 	},
 	"Bebras Access Log": {
 		# LogFormat "%{Host}i %h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" beaver_combined
-		"regex": re.compile(r"^([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) \[([^\]]+) +\d\d\d\d\] \"([^\"]+)\" \d+ (\d+|-) \"([^\"]+)\" \"([^\"]+)\"$"),
+		"regex": re.compile(r"^([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) \[([^ ]+) +\d\d\d\d\] \"([^\"]+)\" (\d+) (\d+|-) \"([^\"]+)\" \"([^\"]+)\"$"),
 		"groups": ("host", "client", "logname", "user", "date", "request", "status", "bytes", "referer", "ua"),
 		"dateFormat": "%d/%b/%Y:%H:%M:%S"
 	},
 	"Apache Access Log (combined)": {
 		# LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
-		"regex": re.compile(r"$([^ ]+) ([^ ]+) ([^ ]+) \[([^\]]+) +\d\d\d\d\] \"([^\"]+)\" \d+ (\d+|-) \"([^\"]+)\" \"([^\"]+)\"$"),
+		"regex": re.compile(r"$([^ ]+) ([^ ]+) ([^ ]+) \[([^ ]+) +\d\d\d\d\] \"([^\"]+)\" (\d+) (\d+|-) \"([^\"]+)\" \"([^\"]+)\"$"),
 		"groups": ("client", "logname", "user", "date", "request", "status", "bytes", "referer", "ua"),
 		"dateFormat": "%d/%b/%Y:%H:%M:%S"
 	}

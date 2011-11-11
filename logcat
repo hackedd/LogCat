@@ -5,10 +5,12 @@ import gobject
 
 import sys
 from time import strftime
+from datetime import datetime
 from multiprocessing import Queue
 
 from FileTail import FileTail, SSHFileTail
 from LogParser import parseLine
+from Color import HSVtoRGB
 
 def getTail(filename):
 	if filename.startswith("ssh://"):
@@ -31,8 +33,8 @@ class ListWrapper(gobject.GObject):
 		return self.list
 
 class LogCatTab(gtk.ScrolledWindow):
-	TYPE, MESSAGE, COUNT, LAST_SEEN_STR, LAST_SEEN, ALL = range(6)
-	TYPES = (str, str, int, str, object, gobject.TYPE_PYOBJECT)
+	TYPE, MESSAGE, COUNT, LAST_SEEN_STR, LAST_SEEN, COLOR, ALL = range(7)
+	TYPES = (str, str, int, str, object, str, gobject.TYPE_PYOBJECT)
 	NAMES = ("Type", "Message", "Count", "Last Seen")
 
 	DATE_FORMAT = "%Y-%m-%d %H:%M"
@@ -50,7 +52,7 @@ class LogCatTab(gtk.ScrolledWindow):
 		self.add(self.treeView)
 
 		for idx, colname in enumerate(self.NAMES):
-			col = gtk.TreeViewColumn(colname, gtk.CellRendererText(), text = idx)
+			col = gtk.TreeViewColumn(colname, gtk.CellRendererText(), text = idx, background = self.COLOR)
 			self.treeView.append_column(col)
 			
 			col.set_resizable(True)
@@ -58,9 +60,17 @@ class LogCatTab(gtk.ScrolledWindow):
 
 			if colname == "Message":
 				col.set_expand(True)
+
+		self.colorTime = 5
+		self.colors = []
+		for s in range(60, -1, -1):
+			r, g, b = HSVtoRGB(30.0, s / 60.0, 1.0)
+			self.colors.append("#%02x%02x%02x" % (r * 0xff, g * 0xff, b * 0xff))
+		
+		gobject.timeout_add(self.colorTime * 1000, self.on_update_colors)
 	
 	def addError(self, error):
-		for idx, row in enumerate(self.store):
+		for row in self.store:
 			if row[self.MESSAGE] == error["message"]:
 				row[self.COUNT] += 1
 				row[self.ALL].getList().append(error.copy())
@@ -68,13 +78,22 @@ class LogCatTab(gtk.ScrolledWindow):
 				if error["date"] > row[self.LAST_SEEN]:
 					row[self.LAST_SEEN] = error["date"]
 					row[self.LAST_SEEN_STR] = strftime(self.DATE_FORMAT, error["date"])
-
+					row[self.COLOR] = self.getColor(error["date"])
 				break
 		else:
 			messageType = error["messageType"] if error["messageType"] else "Unknown"
 			lastSeenStr = strftime(self.DATE_FORMAT, error["date"])
-			self.store.append((messageType, error["message"], 1, lastSeenStr, error["date"], ListWrapper(error.copy())))
+			self.store.append((messageType, error["message"], 1, lastSeenStr, error["date"], self.getColor(error["date"]), ListWrapper(error.copy())))
 		
+	def getColor(self, lastSeen):
+		delta = datetime.now() - datetime(*lastSeen[0:6])
+		if delta.days or delta.seconds > self.colorTime * len(self.colors):
+			idx = -1
+		else:
+			idx = int(delta.seconds / self.colorTime)
+			#print datetime(*lastSeen[0:6]), delta.seconds, self.colorTime, idx
+		return self.colors[idx]
+
 	def on_selection_changed(self, selection):
 		model, paths = self.treeViewSelection.get_selected_rows()
 		if len(paths) > 0:
@@ -84,6 +103,13 @@ class LogCatTab(gtk.ScrolledWindow):
 			list = None
 
 		self.mainWindow.setDetails(list)
+	
+	def on_update_colors(self):
+		lastColor = self.colors[-1]
+		for row in self.store:
+			if row[self.COLOR] != lastColor:
+				row[self.COLOR] = self.getColor(row[self.LAST_SEEN])
+		return True
 
 from collections import defaultdict
 
@@ -151,6 +177,8 @@ class LogCatWindow(gtk.Window):
 		self.tabs = {}
 
 		notebook = gtk.Notebook()
+		notebook.set_scrollable(True)
+		notebook.popup_enable()
 		self.details = LogCatDetails(self)
 
 		vbox = gtk.VPaned()
@@ -194,7 +222,10 @@ class LogCatWindow(gtk.Window):
 	def on_io(self, fd, cond):
 		line = self.tails[fd].getQueue().get()
 		parsed = parseLine(line)
-		if parsed != None:
+		if parsed == None:
+			print "Unable to parse line (%s)" % self.tails[fd].getTitle()
+			print line
+		else:
 			self.tabs[fd].addError(parsed)
 			self.tabs[None].addError(parsed)
 		return True
@@ -206,25 +237,6 @@ if __name__ == "__main__":
 	if len(sys.argv) < 2:
 		print >>sys.stderr, "Usage: %s Files..." % sys.argv[0]
 		sys.exit(1)
-
-	# q = Queue()
-	# #ft = FileTail(sys.argv[1], q)
-	# ft = SSHFileTail("eco1", "/var/log/apache2/beverwedstrijd_error.log", q)
-	# ft.start()
-
-	# lp = 
-
-	# #for _ in range(5):
-	# while True:
-	# 	line = q.get()
-
-	# 	parsed = lp.parseLine(line)
-	# 	for k, v in parsed.iteritems():
-	# 		print "%s: %s" % (k, v)
-	# 	print
-	
-	# ft.requestStop()
-	# ft.join()
 
 	w = LogCatWindow(sys.argv[1:])
 	gtk.main()
