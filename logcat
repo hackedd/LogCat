@@ -4,6 +4,7 @@ import gtk
 import gobject
 
 import sys
+import locale
 from time import strftime
 from datetime import datetime
 from multiprocessing import Queue
@@ -237,6 +238,8 @@ if __name__ == "__main__":
 	if len(sys.argv) < 2:
 		print >>sys.stderr, "Usage: %s Files..." % sys.argv[0]
 		sys.exit(1)
+
+	locale.setlocale(locale.LC_TIME, "C")
 
 	w = LogCatWindow(sys.argv[1:])
 	gtk.main()
